@@ -8,8 +8,17 @@ gunicorn --bind 0.0.0.0:5000 encryption:app &
  # erosolar.net/circuits
 gunicorn --bind 0.0.0.0:6969 circuits:app &
 
+# to kill and restart gunicorn (or anything else)
+
+ps aux | grep "gunicorn"
+
+sudo kill -9 pid of whatever the fuck you wanna kill
+
+# pyinstaller for the desktop pgp applications
 
 python3.12 -m PyInstaller desktop_pgp.py
+
+# screenshot demos
 
 ![image](https://github.com/user-attachments/assets/5fee10cb-138e-4f69-b1d0-4550725d9832)
 
