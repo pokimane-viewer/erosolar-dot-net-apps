@@ -1,4 +1,4 @@
-# erosolar-dot-net from fresh elastic compute engine, installing nginx to reverse proxy visitors who visit on external http/s IPs on / to port 3000 localhost, which next.js serves by running nodejs.
+# erosolar-dot-net from fresh elastic compute engine, installing nginx to reverse proxy visitors who visit on external http/s IPs on / to port 3000 localhost, which next.js serves by running nodejs. to add any other application, ensure the root of that application is served to some endpoint via both the application setting itself, and also nginx; please see demo nginx conf file in this repo
 
 # Update system
 sudo apt update && sudo apt upgrade -y
