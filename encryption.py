@@ -1,5 +1,5 @@
 from flask import Flask, request, render_template, Response, send_file
-import pgpy, os, uuid
+import pgpy, os, uuid, secrets
 from pgpy.constants import PubKeyAlgorithm, KeyFlags, HashAlgorithm, SymmetricKeyAlgorithm, CompressionAlgorithm
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
@@ -45,12 +45,12 @@ base_template = '''<!doctype html>
         <li class="nav-item"><a class="nav-link" href="{{ base_path }}/aes_encrypt">AES Encrypt</a></li>
         <li class="nav-item"><a class="nav-link" href="{{ base_path }}/aes_decrypt">AES Decrypt</a></li>
         <li class="nav-item"><a class="nav-link" href="{{ base_path }}/pgp_encrypt">PGP Encrypt</a></li>
-        <li class="nav-item"><a class="nav-link" href="{{ base_path }}/pgp_demo">PGP Demo</a></li>
-        <li class="nav-item"><a class="nav-link" href="{{ base_path }}/raw_rsa">Raw RSA</a></li>
+        <li class="nav-item"><a class="nav-link" href="{{ base_path }}/pgp_demo">PGP Download Keypair</a></li>
+        <li class="nav-item"><a class="nav-link" href="{{ base_path }}/raw_rsa">RSA 4096 Download Keypair</a></li>
         <li class="nav-item"><a class="nav-link" href="{{ base_path }}/rsa_hand">RSA Demo</a></li>
-        <li class="nav-item"><a class="nav-link" href="{{ base_path }}/ecc_hand">ECC Demo</a></li>
-        <li class="nav-item"><a class="nav-link" href="{{ base_path }}/ed25519_hand">Ed25519 Demo</a></li>
-        <li class="nav-item"><a class="nav-link" href="{{ base_path }}/x25519_hand">X25519 Demo</a></li>
+        <li class="nav-item"><a class="nav-link" href="{{ base_path }}/ecc_hand">ECC Download Keypair(4 SECP algo avail)(4 </a></li>
+        <li class="nav-item"><a class="nav-link" href="{{ base_path }}/ed25519_hand">ECC Ed25519 Download Keypai </a></li>
+        <li class="nav-item"><a class="nav-link" href="{{ base_path }}/x25519_hand">Diffie Hellman (X25519) Demo App</a></li>
       </ul>
     </div>
   </div>
@@ -202,11 +202,38 @@ rsa_hand_template = '''{% extends "base.html" %}
   <div class="card-header"><h2>Interactive RSA Demo</h2></div>
   <div class="card-body">
     <form method="post">
-      <div class="mb-3"><label class="form-label">Enter prime p (less than 100):</label><input type="number" name="p" class="form-control" required></div>
-      <div class="mb-3"><label class="form-label">Enter prime q (less than 100):</label><input type="number" name="q" class="form-control" required></div>
+      <div class="mb-3">
+        <label class="form-label">Prime Selection Method:</label>
+        <div>
+          <input type="radio" id="manual" name="prime_source" value="manual" checked>
+          <label for="manual">Manual Entry</label>
+          <input type="radio" id="auto" name="prime_source" value="auto">
+          <label for="auto">Automatic Generation</label>
+        </div>
+      </div>
+      <div id="manual_fields">
+        <div class="mb-3"><label class="form-label">Enter prime p:</label><input type="number" name="p" class="form-control"></div>
+        <div class="mb-3"><label class="form-label">Enter prime q:</label><input type="number" name="q" class="form-control"></div>
+      </div>
+      <div id="auto_field" style="display:none;">
+        <div class="mb-3"><label class="form-label">Desired bit length for primes:</label><input type="number" name="bits" class="form-control" value="512"></div>
+      </div>
       <div class="mb-3"><label class="form-label">Enter a short message (max 100 characters):</label><input type="text" name="message" maxlength="100" class="form-control" required></div>
       <button type="submit" class="btn btn-primary">Run RSA Demo</button>
     </form>
+    <script>
+    document.getElementsByName('prime_source').forEach(function(radio) {
+      radio.addEventListener('change', function() {
+        if(this.value == 'manual'){
+          document.getElementById('manual_fields').style.display = 'block';
+          document.getElementById('auto_field').style.display = 'none';
+        } else {
+          document.getElementById('manual_fields').style.display = 'none';
+          document.getElementById('auto_field').style.display = 'block';
+        }
+      });
+    });
+    </script>
     {% if error %}
     <p class="text-danger mt-3">{{ error }}</p>
     {% endif %}
@@ -226,7 +253,7 @@ rsa_hand_template = '''{% extends "base.html" %}
     <p>Decrypted numbers: {{ decrypted_numbers }}</p>
     <p>Decrypted Message: "{{ decrypted_message }}"</p>
     <hr>
-    <p class="text-warning">RSA demo keys are for educational purposes only. Do not expose your private key publicly (e.g. in GitHub or insecure servers) when used for SSH.</p>
+    <p class="text-warning">RSA demo keys are for educational purposes only. Do not expose your private key publicly.</p>
     {% endif %}
   </div>
 </div>
@@ -524,21 +551,52 @@ def download_raw_public():
 @app.route('/encryption/rsa_hand', methods=['GET', 'POST'])
 def rsa_hand():
     if request.method == 'POST':
-        try:
-            p = int(request.form.get('p'))
-            q = int(request.form.get('q'))
-        except Exception:
-            return render_template('rsa_hand.html', error="Invalid input")
+        prime_source = request.form.get('prime_source', 'manual')
         message = request.form.get('message')
-        def is_prime(n):
+        def is_probable_prime(n, k=10):
             if n < 2:
                 return False
-            for i in range(2, int(n**0.5)+1):
-                if n % i == 0:
+            for prime in [2, 3, 5, 7, 11, 13, 17, 19, 23, 29]:
+                if n % prime == 0:
+                    return n == prime
+            s, d = 0, n - 1
+            while d % 2 == 0:
+                s += 1
+                d //= 2
+            for _ in range(k):
+                a = secrets.randbelow(n - 3) + 2
+                x = pow(a, d, n)
+                if x == 1 or x == n - 1:
+                    continue
+                for _ in range(s - 1):
+                    x = pow(x, 2, n)
+                    if x == n - 1:
+                        break
+                else:
                     return False
             return True
-        if not (is_prime(p) and is_prime(q)) or p >= 100 or q >= 100:
-            return render_template('rsa_hand.html', error="p and q must be prime numbers less than 100")
+        def generate_prime(bits):
+            while True:
+                candidate = secrets.randbits(bits) | (1 << (bits - 1)) | 1
+                if is_probable_prime(candidate):
+                    return candidate
+        if prime_source == 'manual':
+            try:
+                p = int(request.form.get('p'))
+                q = int(request.form.get('q'))
+            except Exception:
+                return render_template('rsa_hand.html', error="Invalid input")
+            if not (is_probable_prime(p) and is_probable_prime(q)):
+                return render_template('rsa_hand.html', error="p and q must be prime numbers")
+        else:
+            try:
+                bits = int(request.form.get('bits'))
+            except Exception:
+                bits = 512
+            p = generate_prime(bits)
+            q = generate_prime(bits)
+            while q == p:
+                q = generate_prime(bits)
         n = p * q
         if n < 128:
             return render_template('rsa_hand.html', error="n = p*q must be at least 128. Choose larger primes.")
@@ -547,11 +605,14 @@ def rsa_hand():
             while b:
                 a, b = b, a % b
             return a
-        e = None
-        for candidate in [3, 5, 7, 11, 13, 17, 19, 23, 29, 31]:
-            if candidate < phi and gcd(candidate, phi) == 1:
-                e = candidate
-                break
+        if phi > 65537 and gcd(65537, phi) == 1:
+            e = 65537
+        else:
+            e = None
+            for candidate in [3, 5, 7, 11, 13, 17, 19, 23, 29, 31]:
+                if candidate < phi and gcd(candidate, phi) == 1:
+                    e = candidate
+                    break
         if e is None:
             return render_template('rsa_hand.html', error="Could not find suitable public exponent e")
         def modinv(a, m):
