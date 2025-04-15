@@ -1,5 +1,14 @@
 # erosolar-dot-net
+
  
+# erosolar.net/encryption
+gunicorn --bind 0.0.0.0:5000 encryption:app &
+
+
+ # erosolar.net/circuits
+gunicorn --bind 0.0.0.0:6969 circuits:app &
+
+
 python3.12 -m PyInstaller desktop_pgp.py
 
 ![image](https://github.com/user-attachments/assets/5fee10cb-138e-4f69-b1d0-4550725d9832)
