@@ -4,11 +4,11 @@ from pgpy.constants import PubKeyAlgorithm, KeyFlags, HashAlgorithm, SymmetricKe
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
-from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives import hashes, serialization
 from io import BytesIO
 from werkzeug.utils import secure_filename
-from cryptography.hazmat.primitives.asymmetric import rsa
-from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa, ec, ed25519, x25519, utils
+from cryptography.hazmat.primitives import hashes as asym_hashes
 from jinja2 import DictLoader
 
 app = Flask(__name__)
@@ -17,6 +17,8 @@ keys_store = {}
 aes_store = {}
 pgp_store = {}
 raw_rsa_store = {}
+ecc_store = {}
+ed25519_store = {}
 
 @app.context_processor
 def inject_base_path():
@@ -34,7 +36,7 @@ base_template = '''<!doctype html>
 <nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-4">
   <div class="container-fluid">
     <a class="navbar-brand" href="{{ base_path }}/">Encryption App</a>
-    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+    <button type="button" class="navbar-toggler" data-bs-toggle="collapse" data-bs-target="#navbarNav">
       <span class="navbar-toggler-icon"></span>
     </button>
     <div class="collapse navbar-collapse" id="navbarNav">
@@ -46,6 +48,9 @@ base_template = '''<!doctype html>
         <li class="nav-item"><a class="nav-link" href="{{ base_path }}/pgp_demo">PGP Demo</a></li>
         <li class="nav-item"><a class="nav-link" href="{{ base_path }}/raw_rsa">Raw RSA</a></li>
         <li class="nav-item"><a class="nav-link" href="{{ base_path }}/rsa_hand">RSA Demo</a></li>
+        <li class="nav-item"><a class="nav-link" href="{{ base_path }}/ecc_hand">ECC Demo</a></li>
+        <li class="nav-item"><a class="nav-link" href="{{ base_path }}/ed25519_hand">Ed25519 Demo</a></li>
+        <li class="nav-item"><a class="nav-link" href="{{ base_path }}/x25519_hand">X25519 Demo</a></li>
       </ul>
     </div>
   </div>
@@ -70,7 +75,7 @@ index_template = '''{% extends "base.html" %}
       <div class="mb-3"><label class="form-label">Passphrase:</label><input type="password" name="passphrase" class="form-control"></div>
       <button type="submit" class="btn btn-primary">Generate Key Pair</button>
     </form>
-    <p class="mt-3">Note: Unlike AES256 encryption keys which are unique per file and processed temporarily in RAM, your generated PGP secret key is permanently attached to your identity. To change it, generate a new key pair.</p>
+    <p class="mt-3">Note: Unlike AES256 encryption keys which are temporary, your generated PGP secret key is permanently linked to your identity. To change it, generate a new key pair.</p>
     {% if public_key %}
     <hr>
     <h3>Public Key</h3>
@@ -93,7 +98,7 @@ aes_encrypt_template = '''{% extends "base.html" %}
       <div class="mb-3"><label class="form-label">Password:</label><input type="password" name="password" class="form-control" required></div>
       <button type="submit" class="btn btn-primary">Encrypt</button>
     </form>
-    <p class="mt-3">Note: Your AES secret key is securely stored and unlocked by your password. The key is processed only temporarily in RAM on the server.</p>
+    <p class="mt-3">Note: Your AES key is securely stored and processed only temporarily in RAM.</p>
     {% if encrypted %}
     <hr>
     <h3>Encrypted File</h3>
@@ -114,7 +119,6 @@ aes_decrypt_template = '''{% extends "base.html" %}
       <div class="mb-3"><label class="form-label">Password:</label><input type="password" name="password" class="form-control" required></div>
       <button type="submit" class="btn btn-primary">Decrypt</button>
     </form>
-    <p class="mt-3">Note: Your AES secret key is securely stored and unlocked by your password. The key is processed only temporarily in RAM on the server.</p>
     {% if error %}<p class="text-danger">{{ error }}</p>{% endif %}
   </div>
 </div>
@@ -147,7 +151,7 @@ pgp_demo_template = '''{% extends "base.html" %}
 <div class="card">
   <div class="card-header"><h2>PGP Demo</h2></div>
   <div class="card-body">
-    <p>Note: Your generated PGP secret key is permanently attached to your identity. To change it, generate a new key pair.</p>
+    <p>Note: Generated PGP keys are permanently linked to your identity. Generate new keys to change them.</p>
     <form method="post">
       <div class="mb-3"><label class="form-label">Message to Encrypt:</label><textarea name="demo_message" rows="5" class="form-control" required></textarea></div>
       <button type="submit" class="btn btn-primary">Generate Keys and Encrypt/Decrypt</button>
@@ -221,6 +225,118 @@ rsa_hand_template = '''{% extends "base.html" %}
     <h3>Decryption Process:</h3>
     <p>Decrypted numbers: {{ decrypted_numbers }}</p>
     <p>Decrypted Message: "{{ decrypted_message }}"</p>
+    <hr>
+    <p class="text-warning">RSA demo keys are for educational purposes only. Do not expose your private key publicly (e.g. in GitHub or insecure servers) when used for SSH.</p>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
+'''
+
+ecc_hand_template = '''{% extends "base.html" %}
+{% block content %}
+<div class="card">
+  <div class="card-header"><h2>Interactive ECC Demo</h2></div>
+  <div class="card-body">
+    <p>ECC (Elliptic Curve Cryptography) offers strong security with smaller key sizes. Choose a curve:
+      <ul>
+        <li><strong>SECP256R1:</strong> Widely used, efficient and secure.</li>
+        <li><strong>SECP384R1:</strong> Higher security with larger keys.</li>
+        <li><strong>SECP521R1:</strong> Maximum security with performance trade-offs.</li>
+        <li><strong>SECP256K1:</strong> Popular in cryptocurrencies (e.g. Bitcoin).</li>
+      </ul>
+    </p>
+    <form method="post">
+      <div class="mb-3">
+        <label class="form-label">Select ECC Curve:</label>
+        <select name="curve" class="form-control" required>
+          <option value="SECP256R1">SECP256R1</option>
+          <option value="SECP384R1">SECP384R1</option>
+          <option value="SECP521R1">SECP521R1</option>
+          <option value="SECP256K1">SECP256K1</option>
+        </select>
+      </div>
+      <div class="mb-3"><label class="form-label">Enter a message to sign:</label><input type="text" name="message" maxlength="100" class="form-control" required></div>
+      <button type="submit" class="btn btn-primary">Run ECC Demo</button>
+    </form>
+    {% if error %}
+    <p class="text-danger mt-3">{{ error }}</p>
+    {% endif %}
+    {% if curve %}
+    <hr>
+    <h3>ECC Demo Results:</h3>
+    <p>Selected Curve: {{ curve }}</p>
+    <h4>Private Key (PEM):</h4>
+    <pre class="bg-light p-3">{{ private_key }}</pre>
+    <h4>Public Key (PEM):</h4>
+    <pre class="bg-light p-3">{{ public_key }}</pre>
+    <h4>Message:</h4>
+    <pre class="bg-light p-3">{{ message }}</pre>
+    <h4>Signature (hex):</h4>
+    <pre class="bg-light p-3">{{ signature }}</pre>
+    <h4>Verification:</h4>
+    <p>{{ verification }}</p>
+    <hr>
+    <h4>Download ECC Keys</h4>
+    <a href="{{ base_path }}/download_ecc_private?eid={{ ecc_id }}" class="btn btn-secondary">Download ECC Private Key</a>
+    <a href="{{ base_path }}/download_ecc_public?eid={{ ecc_id }}" class="btn btn-secondary">Download ECC Public Key</a>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
+'''
+
+ed25519_hand_template = '''{% extends "base.html" %}
+{% block content %}
+<div class="card">
+  <div class="card-header"><h2>Interactive Ed25519 Demo</h2></div>
+  <div class="card-body">
+    <p>Ed25519 is a modern digital signature scheme using elliptic curve cryptography. It provides smaller key sizes and faster performance compared to RSA, with enhanced security against side-channel attacks.</p>
+    <form method="post">
+      <div class="mb-3"><label class="form-label">Enter a message to sign:</label><input type="text" name="message" maxlength="100" class="form-control" required></div>
+      <button type="submit" class="btn btn-primary">Run Ed25519 Demo</button>
+    </form>
+    {% if message %}
+    <hr>
+    <h3>Ed25519 Demo Results:</h3>
+    <p>Message:</p>
+    <pre class="bg-light p-3">{{ message }}</pre>
+    <h4>Signature (hex):</h4>
+    <pre class="bg-light p-3">{{ signature }}</pre>
+    <h4>Verification:</h4>
+    <p>{{ verification }}</p>
+    <hr>
+    <h4>Download Ed25519 Keys</h4>
+    <a href="{{ base_path }}/download_ed25519_private?eid={{ ed_id }}" class="btn btn-secondary">Download Private Key</a>
+    <a href="{{ base_path }}/download_ed25519_public?eid={{ ed_id }}" class="btn btn-secondary">Download Public Key</a>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
+'''
+
+x25519_hand_template = '''{% extends "base.html" %}
+{% block content %}
+<div class="card">
+  <div class="card-header"><h2>Interactive X25519 Key Exchange Demo</h2></div>
+  <div class="card-body">
+    <p>X25519 is an elliptic curve Diffie-Hellman key exchange algorithm that enables two parties to securely agree on a shared secret over an insecure channel. It offers better performance and smaller key sizes compared to RSA-based key exchanges.</p>
+    <form method="post">
+      <button type="submit" class="btn btn-primary">Run X25519 Demo</button>
+    </form>
+    {% if shared_secret %}
+    <hr>
+    <h3>X25519 Key Exchange Results:</h3>
+    <h4>Party A Private Key (PEM):</h4>
+    <pre class="bg-light p-3">{{ a_private }}</pre>
+    <h4>Party A Public Key (PEM):</h4>
+    <pre class="bg-light p-3">{{ a_public }}</pre>
+    <h4>Party B Private Key (PEM):</h4>
+    <pre class="bg-light p-3">{{ b_private }}</pre>
+    <h4>Party B Public Key (PEM):</h4>
+    <pre class="bg-light p-3">{{ b_public }}</pre>
+    <h4>Shared Secret (hex):</h4>
+    <pre class="bg-light p-3">{{ shared_secret }}</pre>
     {% endif %}
   </div>
 </div>
@@ -236,6 +352,9 @@ template_dict = {
     'pgp_demo.html': pgp_demo_template,
     'raw_rsa.html': raw_rsa_template,
     'rsa_hand.html': rsa_hand_template,
+    'ecc_hand.html': ecc_hand_template,
+    'ed25519_hand.html': ed25519_hand_template,
+    'x25519_hand.html': x25519_hand_template,
 }
 
 app.jinja_loader = DictLoader(template_dict)
@@ -452,6 +571,130 @@ def rsa_hand():
                                orig_numbers=orig_numbers, encrypted_numbers=encrypted_numbers,
                                decrypted_numbers=decrypted_numbers, message=message, decrypted_message=decrypted_message)
     return render_template('rsa_hand.html')
+
+@app.route('/encryption/ecc_hand', methods=['GET', 'POST'])
+def ecc_hand():
+    if request.method == 'POST':
+        curve_name = request.form.get('curve')
+        message = request.form.get('message')
+        curve = None
+        if curve_name == "SECP256R1":
+            curve = ec.SECP256R1()
+        elif curve_name == "SECP384R1":
+            curve = ec.SECP384R1()
+        elif curve_name == "SECP521R1":
+            curve = ec.SECP521R1()
+        elif curve_name == "SECP256K1":
+            try:
+                curve = ec.SECP256K1()
+            except Exception as ex:
+                return render_template('ecc_hand.html', error="SECP256K1 curve not supported", curve=curve_name)
+        if not curve:
+            return render_template('ecc_hand.html', error="Invalid curve selected")
+        try:
+            private_key = ec.generate_private_key(curve, default_backend())
+            public_key = private_key.public_key()
+            private_pem = private_key.private_bytes(encoding=serialization.Encoding.PEM,
+                                                    format=serialization.PrivateFormat.PKCS8,
+                                                    encryption_algorithm=serialization.NoEncryption()).decode('utf-8')
+            public_pem = public_key.public_bytes(encoding=serialization.Encoding.PEM,
+                                                  format=serialization.PublicFormat.SubjectPublicKeyInfo).decode('utf-8')
+            signature = private_key.sign(message.encode(), ec.ECDSA(asym_hashes.SHA256()))
+            sig_hex = signature.hex()
+            try:
+                public_key.verify(signature, message.encode(), ec.ECDSA(asym_hashes.SHA256()))
+                verification = "Signature verified successfully"
+            except Exception:
+                verification = "Signature verification failed"
+            ecc_id = uuid.uuid4().hex
+            ecc_store[ecc_id] = {"private": private_pem, "public": public_pem}
+            return render_template('ecc_hand.html', curve=curve_name, message=message, private_key=private_pem,
+                                   public_key=public_pem, signature=sig_hex, verification=verification, ecc_id=ecc_id)
+        except Exception as ex:
+            return render_template('ecc_hand.html', error="Error: " + str(ex))
+    return render_template('ecc_hand.html')
+
+@app.route('/encryption/download_ecc_private')
+def download_ecc_private():
+    eid = request.args.get('eid')
+    if eid in ecc_store:
+        return Response(ecc_store[eid]['private'], mimetype='application/x-pem-file',
+                        headers={"Content-Disposition": f"attachment;filename={eid}_ecc_private.pem"})
+    return "Key not found", 404
+
+@app.route('/encryption/download_ecc_public')
+def download_ecc_public():
+    eid = request.args.get('eid')
+    if eid in ecc_store:
+        return Response(ecc_store[eid]['public'], mimetype='text/plain',
+                        headers={"Content-Disposition": f"attachment;filename={eid}_ecc_public.pem"})
+    return "Key not found", 404
+
+@app.route('/encryption/ed25519_hand', methods=['GET', 'POST'])
+def ed25519_hand():
+    if request.method == 'POST':
+        message = request.form.get('message')
+        try:
+            private_key = ed25519.Ed25519PrivateKey.generate()
+            public_key = private_key.public_key()
+            signature = private_key.sign(message.encode())
+            sig_hex = signature.hex()
+            try:
+                public_key.verify(signature, message.encode())
+                verification = "Signature verified successfully"
+            except Exception:
+                verification = "Signature verification failed"
+            ed_id = uuid.uuid4().hex
+            ed25519_store[ed_id] = {"private": private_key.private_bytes(
+                                            encoding=serialization.Encoding.PEM,
+                                            format=serialization.PrivateFormat.PKCS8,
+                                            encryption_algorithm=serialization.NoEncryption()).decode('utf-8'),
+                                     "public": public_key.public_bytes(
+                                            encoding=serialization.Encoding.PEM,
+                                            format=serialization.PublicFormat.SubjectPublicKeyInfo).decode('utf-8')}
+            return render_template('ed25519_hand.html', message=message, signature=sig_hex, verification=verification, ed_id=ed_id)
+        except Exception as ex:
+            return render_template('ed25519_hand.html', error="Error: " + str(ex))
+    return render_template('ed25519_hand.html')
+
+@app.route('/encryption/download_ed25519_private')
+def download_ed25519_private():
+    eid = request.args.get('eid')
+    if eid in ed25519_store:
+        return Response(ed25519_store[eid]['private'], mimetype='application/x-pem-file',
+                        headers={"Content-Disposition": f"attachment;filename={eid}_ed25519_private.pem"})
+    return "Key not found", 404
+
+@app.route('/encryption/download_ed25519_public')
+def download_ed25519_public():
+    eid = request.args.get('eid')
+    if eid in ed25519_store:
+        return Response(ed25519_store[eid]['public'], mimetype='text/plain',
+                        headers={"Content-Disposition": f"attachment;filename={eid}_ed25519_public.pem"})
+    return "Key not found", 404
+
+@app.route('/encryption/x25519_hand', methods=['GET', 'POST'])
+def x25519_hand():
+    if request.method == 'POST':
+        a_private = x25519.X25519PrivateKey.generate()
+        a_public = a_private.public_key()
+        b_private = x25519.X25519PrivateKey.generate()
+        b_public = b_private.public_key()
+        shared_secret = a_private.exchange(b_public).hex()
+        a_private_pem = a_private.private_bytes(encoding=serialization.Encoding.PEM,
+                                                 format=serialization.PrivateFormat.PKCS8,
+                                                 encryption_algorithm=serialization.NoEncryption()).decode('utf-8')
+        a_public_pem = a_public.public_bytes(encoding=serialization.Encoding.PEM,
+                                             format=serialization.PublicFormat.SubjectPublicKeyInfo).decode('utf-8')
+        b_private_pem = b_private.private_bytes(encoding=serialization.Encoding.PEM,
+                                                 format=serialization.PrivateFormat.PKCS8,
+                                                 encryption_algorithm=serialization.NoEncryption()).decode('utf-8')
+        b_public_pem = b_public.public_bytes(encoding=serialization.Encoding.PEM,
+                                             format=serialization.PublicFormat.SubjectPublicKeyInfo).decode('utf-8')
+        return render_template('x25519_hand.html', shared_secret=shared_secret,
+                               a_private=a_private_pem, a_public=a_public_pem,
+                               b_private=b_private_pem, b_public=b_public_pem)
+    return render_template('x25519_hand.html')
 
 if __name__ == '__main__':
     app.run()
