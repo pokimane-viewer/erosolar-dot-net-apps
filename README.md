@@ -6,6 +6,16 @@ python3.12 -m PyInstaller desktop_pgp.py
 
 ![image](https://github.com/user-attachments/assets/d3cf70d5-ae03-48a4-bedc-29ac190e16ba)
 
+This is full ECC (all 3 types) it's not demos but i have to edit it manually to reflect this
+
+![image](https://github.com/user-attachments/assets/45f199bd-6ddb-40ff-8f6d-fa539c68e423)
+
+![image](https://github.com/user-attachments/assets/705c4a03-e9dd-4957-90eb-fffe21b497f7)
+
+This is diffie demo but i have to edit manually; ChatGPT can make mistakes...
+
+![image](https://github.com/user-attachments/assets/b87364a3-92a3-411a-86c4-53c346b2eed5)
+
 
 ![image](https://github.com/user-attachments/assets/8db0180f-53b4-4c21-8a36-4a1b72c9857a)
 
