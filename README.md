@@ -39,6 +39,8 @@ sudo certbot --nginx -d erosolar.net -d www.erosolar.net --non-interactive --agr
 sudo systemctl enable certbot.timer
 
 # restart nginx
+
+sudo systemctl restart nginx
  
 # erosolar.net/encryption
 gunicorn --bind 0.0.0.0:5000 encryption:app &
