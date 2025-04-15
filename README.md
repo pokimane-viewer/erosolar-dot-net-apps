@@ -1,5 +1,44 @@
-# erosolar-dot-net
+# erosolar-dot-net from fresh elastic compute engine, installing nginx to reverse proxy visitors who visit on external http/s IPs on / to port 3000 localhost, which next.js serves by running nodejs.
 
+# Update system
+sudo apt update && sudo apt upgrade -y
+
+# Install Nginx
+sudo apt install nginx -y
+
+# Configure Nginx to proxy requests on erosolar.net to port 3000
+sudo tee /etc/nginx/sites-available/erosolar.net > /dev/null <<'EOF'
+server {
+    listen 80;
+    server_name erosolar.net www.erosolar.net;
+
+    location / {
+        proxy_pass http://localhost:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_cache_bypass $http_upgrade;
+    }
+}
+EOF
+
+# Enable the config
+sudo ln -s /etc/nginx/sites-available/erosolar.net /etc/nginx/sites-enabled/
+
+# Test and reload Nginx
+sudo nginx -t && sudo systemctl reload nginx
+
+# Install Certbot and the Nginx plugin
+sudo apt install certbot python3-certbot-nginx -y
+
+# Obtain and install the SSL certificate
+sudo certbot --nginx -d erosolar.net -d www.erosolar.net --non-interactive --agree-tos -m admin@erosolar.net --redirect
+
+# Auto-renewal cron job (optional - usually added by Certbot)
+sudo systemctl enable certbot.timer
+
+# restart nginx
  
 # erosolar.net/encryption
 gunicorn --bind 0.0.0.0:5000 encryption:app &
