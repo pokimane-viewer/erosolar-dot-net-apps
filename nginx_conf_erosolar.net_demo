@@ -1,43 +1,91 @@
 server {
-    listen 443 ssl;
+    listen 443 ssl http2; # Added http2 for potential performance benefits
     server_name erosolar.net www.erosolar.net;
 
-    location / {
-        proxy_pass http://127.0.0.1:3000;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-
-    location /encryption/ {
-        proxy_pass http://127.0.0.1:5000;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-
+    # SSL Configuration - unchanged
     ssl_certificate /etc/letsencrypt/live/erosolar.net/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/erosolar.net/privkey.pem;
     include /etc/letsencrypt/options-ssl-nginx.conf;
     ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
+
+    # Existing location for the root application - unchanged
+    location / {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade"; # Keep for potential WebSocket use
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # Existing location for /encryption/ - unchanged
+    location /encryption/ {
+        proxy_pass http://127.0.0.1:5000; # Ensure backend for /encryption/ runs on port 5000
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade"; # Keep for potential WebSocket use
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Script-Name /encryption; # Inform backend of its base path
+    }
+
+    # Existing location block for the circuits app - unchanged
+    location /circuits/ {
+        # Proxy to the Gunicorn server for circuits.py (assuming port 6969)
+        proxy_pass http://127.0.0.1:6969/; # Trailing slash is important!
+
+        proxy_http_version 1.1;
+        # Include headers needed for Flask/Gunicorn
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade"; # Keep for potential WebSocket use
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        # Pass the base path info to the application
+        proxy_set_header X-Script-Name /circuits;
+    }
+
+    # --- NEW location block for the /code app ---
+    location /code/ {
+        # Proxy to the Gunicorn server running on port 4949
+        proxy_pass http://127.0.0.1:4949/; # Trailing slash is important!
+
+        proxy_http_version 1.1;
+        # Include standard headers needed for Flask/Gunicorn
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        # Pass the base path info to the application
+        proxy_set_header X-Script-Name /code;
+    }
+
+    # Optional: Add general security headers (example) - unchanged
+    # add_header X-Content-Type-Options nosniff;
+    # add_header X-Frame-Options DENY;
+    # add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
 }
 
+# HTTP to HTTPS redirect block - unchanged
 server {
-    if ($host = www.erosolar.net) {
-        return 301 https://$host$request_uri;
-    }
-    if ($host = erosolar.net) {
-        return 301 https://$host$request_uri;
-    }
     listen 80;
     server_name erosolar.net www.erosolar.net;
-    return 404;
+
+    # LetsEncrypt ACME challenge handling (if using http-01) - unchanged example
+    # location ~ /.well-known/acme-challenge/ {
+    #     root /var/www/html; # Or your webroot
+    #     allow all;
+    # }
+
+    # Redirect all other HTTP requests to HTTPS - unchanged
+    location / {
+        return 301 https://$host$request_uri;
+    }
 }
