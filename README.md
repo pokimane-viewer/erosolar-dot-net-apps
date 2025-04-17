@@ -26,3 +26,9 @@ sc5FqpI5Y0e9/hDo/4KqVhvRNh0B+iYOFTFpfFRC3gZ+qhMN+MU=
 -----END PGP SIGNATURE-----
 
 ![image](https://github.com/user-attachments/assets/2a57126a-376e-42a7-8e08-89f9bbfb10ef)
+
+Valid: True
+
+Hi Adam nice to meet you!
+
+![image](https://github.com/user-attachments/assets/bf5f9d4a-124b-4276-9398-ec4390aa7c51)
