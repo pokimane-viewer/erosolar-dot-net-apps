@@ -1259,7 +1259,7 @@ def x25519_hand():
 
 @app.route('/encryption/my_pgp', methods=['GET', 'POST'])
 def my_pgp():
-    title = "Bo's PGP Public Key"
+    title = "My PGP Key"
     encrypted_for_me = None
     encrypt_error = None
     verification_result = None
