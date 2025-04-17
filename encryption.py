@@ -84,7 +84,7 @@ base_template = '''<!doctype html>
     </button>
     <div class="collapse navbar-collapse" id="navbarNav">
       <ul class="navbar-nav">
-        <li class="nav-item"><a class="nav-link" href="{{ base_path }}/my_pgp">My PGP Key</a></li>
+        <li class="nav-item"><a class="nav-link" href="{{ base_path }}/my_pgp">Bo's PGP Key</a></li>
         <li class="nav-item"><a class="nav-link" href="{{ base_path }}/hashing">Hashing</a></li>
         <li class="nav-item dropdown">
             <a class="nav-link dropdown-toggle" href="#" id="navbarKeyGen" role="button" data-bs-toggle="dropdown" aria-expanded="false">
@@ -569,7 +569,7 @@ my_pgp_template = '''{% extends "base.html" %}
 </div>
 
 <div class="card mb-4">
-    <div class="card-header"><h2>Encrypt a Message For Me</h2></div>
+    <div class="card-header"><h2>Encrypt a Message For Bo</h2></div>
     <div class="card-body">
         <form method="post">
             <input type="hidden" name="action" value="encrypt">
@@ -592,7 +592,7 @@ my_pgp_template = '''{% extends "base.html" %}
 </div>
 
 <div class="card">
-    <div class="card-header"><h2>Verify a Message Signed By Me</h2></div>
+    <div class="card-header"><h2>Verify a Message Signed By Bo</h2></div>
     <div class="card-body">
         <form method="post">
             <input type="hidden" name="action" value="verify">
@@ -607,11 +607,11 @@ my_pgp_template = '''{% extends "base.html" %}
         <h4>Verification Result:</h4>
         {% if verification_result %}
         <div class="alert alert-success" role="alert">
-            <strong>Success!</strong> The signature is valid and was made by my key.
+            <strong>Success!</strong> The signature is valid and was made by Bo's key.
         </div>
         {% else %}
         <div class="alert alert-danger" role="alert">
-            <strong>Failed!</strong> The signature is invalid or could not be verified with my key.
+            <strong>Failed!</strong> The signature is invalid or could not be verified with Bo's public key.
         </div>
         {% endif %}
         {% if verified_message_content %}
@@ -1259,7 +1259,7 @@ def x25519_hand():
 
 @app.route('/encryption/my_pgp', methods=['GET', 'POST'])
 def my_pgp():
-    title = "My PGP Information"
+    title = "Bo's PGP Public Key"
     encrypted_for_me = None
     encrypt_error = None
     verification_result = None

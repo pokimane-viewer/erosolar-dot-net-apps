@@ -4,7 +4,8 @@ import json
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, scrolledtext, simpledialog as sd
 import keyring
-from pgpy import PGPKey, PGPMessage
+from pgpy import PGPKey, PGPMessage, PGPUID
+from pgpy.constants import PubKeyAlgorithm, KeyFlags, HashAlgorithm, SymmetricKeyAlgorithm, CompressionAlgorithm
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.primitives import hashes, padding
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
@@ -84,7 +85,7 @@ def change_master_password():
         return
     old = fernet
     new_fernet = Fernet(derive_master_key(new))
-    for kt in ("private_key", "sign_private_key", "credentials"):
+    for kt in ("private_key", "sign_private_key", "credentials", "pgp_keyvault"):
         data = keyring.get_password("pgp_app", kt)
         if data:
             dec = old.decrypt(data.encode())
@@ -120,7 +121,7 @@ def verify_signature(pub, sm):
     return bool(pub.verify(m)), m.message or ""
 
 def store_key(kt, txt):
-    if kt in ("private_key", "sign_private_key", "credentials"):
+    if kt in ("private_key", "sign_private_key", "credentials", "pgp_keyvault"):
         enc = fernet.encrypt(txt.encode()).decode()
         keyring.set_password("pgp_app", kt, enc)
     else:
@@ -130,7 +131,7 @@ def get_stored_key(kt):
     d = keyring.get_password("pgp_app", kt)
     if not d:
         return None
-    if kt in ("private_key", "sign_private_key", "credentials"):
+    if kt in ("private_key", "sign_private_key", "credentials", "pgp_keyvault"):
         try:
             return fernet.decrypt(d.encode()).decode()
         except:
@@ -150,6 +151,108 @@ def load_credentials():
 def save_credentials(creds):
     enc = fernet.encrypt(json.dumps(creds).encode()).decode()
     keyring.set_password("pgp_app", "credentials", enc)
+
+def load_keyvault():
+    data = keyring.get_password("pgp_app", "pgp_keyvault")
+    if not data:
+        return {}
+    try:
+        dec = fernet.decrypt(data.encode()).decode()
+        return json.loads(dec)
+    except:
+        return {}
+
+def save_keyvault(vault):
+    enc = fernet.encrypt(json.dumps(vault).encode()).decode()
+    keyring.set_password("pgp_app", "pgp_keyvault", enc)
+
+def generate_keypair(name, email, passphrase):
+    key = PGPKey.new(PubKeyAlgorithm.RSAEncryptOrSign, 2048)
+    uid = PGPUID.new(name, email=email)
+    key.add_uid(uid, usage={KeyFlags.Sign, KeyFlags.EncryptCommunications, KeyFlags.EncryptStorage}, hashes=[HashAlgorithm.SHA256], ciphers=[SymmetricKeyAlgorithm.AES256], compression=[CompressionAlgorithm.ZLIB])
+    if passphrase:
+        key.protect(passphrase, SymmetricKeyAlgorithm.AES256, HashAlgorithm.SHA256)
+    return str(key), str(key.pubkey), key.fingerprint
+
+def generate_key_action():
+    name = sd.askstring("Name", "Enter name:")
+    if not name:
+        return
+    email = sd.askstring("Email", "Enter email:")
+    if email is None:
+        return
+    pp = sd.askstring("Passphrase", "Set passphrase (optional):", show="*")
+    def worker():
+        priv_txt, pub_txt, fp = generate_keypair(name, email, pp or None)
+        vault = load_keyvault()
+        vault[fp] = {"private": priv_txt, "public": pub_txt}
+        save_keyvault(vault)
+        messagebox.showinfo("Generated", f"Keypair generated with fingerprint {fp} and stored in vault")
+    threading.Thread(target=worker, daemon=True).start()
+
+def open_vault_window():
+    win = tk.Toplevel(root)
+    win.title("PGP Key Vault")
+    treev = ttk.Treeview(win, columns=("fingerprint",), show="headings")
+    treev.heading("fingerprint", text="Fingerprint")
+    treev.pack(fill="both", expand=True, padx=5, pady=5)
+    def refresh():
+        treev.delete(*treev.get_children())
+        for fp in load_keyvault().keys():
+            treev.insert("", "end", iid=fp, values=(fp,))
+    def import_key():
+        p = filedialog.askopenfilename(filetypes=[("PGP Key", "*.asc *.pgp"), ("All files", "*.*")])
+        if not p:
+            return
+        with open(p, "r") as f:
+            txt = f.read()
+        try:
+            k, _ = PGPKey.from_blob(txt)
+        except Exception as e:
+            messagebox.showerror("Error", str(e))
+            return
+        fp = k.fingerprint
+        vault = load_keyvault()
+        entry = vault.get(fp, {})
+        if k.is_public:
+            entry["public"] = txt
+        else:
+            entry["private"] = txt
+            if "public" not in entry:
+                entry["public"] = str(k.pubkey)
+        vault[fp] = entry
+        save_keyvault(vault)
+        refresh()
+    def delete_key():
+        sel = treev.selection()
+        if not sel:
+            return
+        fp = sel[0]
+        vault = load_keyvault()
+        vault.pop(fp, None)
+        save_keyvault(vault)
+        refresh()
+    def export_selected():
+        sel = treev.selection()
+        if not sel:
+            return
+        fp = sel[0]
+        data = load_keyvault().get(fp, {})
+        for typ in ("public", "private"):
+            if typ in data:
+                path = filedialog.asksaveasfilename(defaultextension=".asc", filetypes=[("PGP Key", "*.asc")], title=f"Save {typ} key")
+                if not path:
+                    continue
+                with open(path, "w") as f:
+                    f.write(data[typ])
+                with open(path + ".fingerprint", "w") as f:
+                    f.write(fp)
+    btn_frame = ttk.Frame(win)
+    btn_frame.pack(fill="x", padx=5, pady=5)
+    ttk.Button(btn_frame, text="Import Key", command=import_key).pack(side="left", padx=5, pady=5)
+    ttk.Button(btn_frame, text="Delete Key", command=delete_key).pack(side="left", padx=5, pady=5)
+    ttk.Button(btn_frame, text="Export Selected", command=export_selected).pack(side="left", padx=5, pady=5)
+    refresh()
 
 def encrypt_action():
     key = load_public_key_from_text(public_key_text.get("1.0", tk.END).strip())
@@ -244,10 +347,17 @@ def export_public_key(kt):
     if not txt:
         messagebox.showerror("Error", "No key stored")
         return
+    try:
+        k, _ = PGPKey.from_blob(txt)
+        fp = k.fingerprint
+    except:
+        fp = ""
     path = filedialog.asksaveasfilename(defaultextension=".asc", filetypes=[("PGP Public Key","*.asc"),("All Files","*.*")])
     if path:
         with open(path, "w") as f:
             f.write(txt)
+        with open(path + ".fingerprint", "w") as f:
+            f.write(fp)
         messagebox.showinfo("Export", f"Public key saved to {path}")
 
 def export_private_key(kt):
@@ -259,10 +369,17 @@ def export_private_key(kt):
     if not txt:
         messagebox.showerror("Error", "No key stored")
         return
+    try:
+        k, _ = PGPKey.from_blob(txt)
+        fp = k.fingerprint
+    except:
+        fp = ""
     path = filedialog.asksaveasfilename(defaultextension=".asc", filetypes=[("PGP Private Key","*.asc"),("All Files","*.*")])
     if path:
         with open(path, "w") as f:
             f.write(txt)
+        with open(path + ".fingerprint", "w") as f:
+            f.write(fp)
         messagebox.showinfo("Export", f"Private key saved to {path}")
 
 def save_encrypted_action():
@@ -339,22 +456,33 @@ def aes_encrypt_file_action():
 
 def aes_decrypt_file_action():
     pw = aes_secret_key if aes_secret_key else master_password
-    path = filedialog.askopenfilename(title="Select .aes256 file to decrypt", filetypes=[("AES256 Files","*.aes256"),("All Files","*.*")])
+    path = filedialog.askopenfilename(title="Select encrypted file to decrypt", filetypes=[("Encrypted Files","*.aes256 *.enc"),("All Files","*.*")])
     if not path:
         return
-    with open(path, "rb") as f:
-        raw = f.read()
-    iv, ct = raw[:16], raw[16:]
-    key = derive_aes_key(pw)
-    cipher = Cipher(algorithms.AES(key), modes.CBC(iv), backend=default_backend())
-    decryptor = cipher.decryptor()
-    padded = decryptor.update(ct) + decryptor.finalize()
-    unpadder = padding.PKCS7(128).unpadder()
-    data = unpadder.update(padded) + unpadder.finalize()
-    out_path = path[:-7] if path.endswith(".aes256") else path + ".dec"
-    with open(out_path, "wb") as f:
-        f.write(data)
-    messagebox.showinfo("Decrypted", f"File decrypted to {out_path}")
+    try:
+        with open(path, "rb") as f:
+            raw = f.read()
+        iv, ct = raw[:16], raw[16:]
+        key = derive_aes_key(pw)
+        cipher = Cipher(algorithms.AES(key), modes.CBC(iv), backend=default_backend())
+        decryptor = cipher.decryptor()
+        padded = decryptor.update(ct) + decryptor.finalize()
+        unpadder = padding.PKCS7(128).unpadder()
+        data = unpadder.update(padded) + unpadder.finalize()
+    except Exception as e:
+        messagebox.showerror("Error", str(e))
+        return
+    base, ext = os.path.splitext(path)
+    if ext.lower() in (".aes256", ".enc"):
+        out_path = base
+    else:
+        out_path = path + ".dec"
+    try:
+        with open(out_path, "wb") as f:
+            f.write(data)
+        messagebox.showinfo("Decrypted", f"File decrypted to {out_path}")
+    except Exception as e:
+        messagebox.showerror("Error", str(e))
 
 def add_cred():
     site = sd.askstring("Site", "Enter site:")
@@ -439,6 +567,9 @@ keys_menu.add_command(label="Save Encryption Public Key", command=lambda: store_
 keys_menu.add_command(label="Save Encryption Private Key", command=lambda: store_key("private_key", private_key_text.get("1.0", tk.END).strip()) or messagebox.showinfo("Saved", "Private key stored"))
 keys_menu.add_command(label="Save Signing Private Key", command=lambda: store_key("sign_private_key", private_sign_key_text.get("1.0", tk.END).strip()) or messagebox.showinfo("Saved", "Signing key stored"))
 keys_menu.add_command(label="Save Verify Public Key", command=lambda: store_key("verify_public_key", public_verify_key_text.get("1.0", tk.END).strip()) or messagebox.showinfo("Saved", "Verify public key stored"))
+keys_menu.add_separator()
+keys_menu.add_command(label="Generate Keypair", command=generate_key_action)
+keys_menu.add_command(label="Open Key Vault", command=open_vault_window)
 menubar.add_cascade(label="Keys", menu=keys_menu)
 root.config(menu=menubar)
 nb = ttk.Notebook(root)
@@ -586,6 +717,66 @@ def refresh_credentials_view():
         tree.insert("", "end", iid=site, values=(site, info["username"], "******"))
 
 refresh_credentials_view()
+
+hash_frame = ttk.Frame(nb)
+nb.add(hash_frame, text="Check Hash")
+source_var = tk.StringVar(value="text")
+ttk.Radiobutton(hash_frame, text="Text", variable=source_var, value="text").pack(anchor="w", padx=5, pady=5)
+ttk.Radiobutton(hash_frame, text="File", variable=source_var, value="file").pack(anchor="w", padx=5, pady=5)
+text_frame_hash = ttk.LabelFrame(hash_frame, text="Text Input")
+text_frame_hash.pack(fill="both", expand=True, padx=5, pady=5)
+hash_text_input = scrolledtext.ScrolledText(text_frame_hash, height=5)
+hash_text_input.pack(fill="both", expand=True, padx=5, pady=5)
+file_frame_hash = ttk.Frame(hash_frame)
+file_frame_hash.pack(fill="x", padx=5, pady=5)
+file_path_var = tk.StringVar()
+ttk.Entry(file_frame_hash, textvariable=file_path_var).pack(side="left", fill="x", expand=True, padx=5, pady=5)
+def browse_file_hash():
+    p = filedialog.askopenfilename()
+    if p:
+        file_path_var.set(p)
+        source_var.set("file")
+ttk.Button(file_frame_hash, text="Browse", command=browse_file_hash).pack(side="left", padx=5, pady=5)
+md5_var = tk.StringVar()
+sha256_var = tk.StringVar()
+def compute_hashes():
+    if source_var.get() == "text":
+        data = hash_text_input.get("1.0", tk.END).encode()
+    else:
+        fp = file_path_var.get()
+        if not fp:
+            messagebox.showerror("Error", "No file selected")
+            return
+        try:
+            with open(fp, "rb") as f:
+                data = f.read()
+        except Exception as e:
+            messagebox.showerror("Error", str(e))
+            return
+    md5_var.set(hashlib.md5(data).hexdigest())
+    sha256_var.set(hashlib.sha256(data).hexdigest())
+def verify_hash():
+    h = verify_entry_hash.get().strip().lower()
+    if not h:
+        messagebox.showerror("Error", "No hash to verify")
+        return
+    computed = md5_var.get().lower() if verify_alg_var.get() == "MD5" else sha256_var.get().lower()
+    if h == computed:
+        messagebox.showinfo("Result", "CONGRATS these hash match!")
+    else:
+        messagebox.showwarning("Result", "WARNING no hash verification")
+ttk.Button(hash_frame, text="Compute Hashes", command=compute_hashes).pack(padx=5, pady=5)
+ttk.Label(hash_frame, text="MD5:").pack(anchor="w", padx=5, pady=2)
+ttk.Entry(hash_frame, textvariable=md5_var, state="readonly").pack(fill="x", padx=5, pady=2)
+ttk.Label(hash_frame, text="SHA256:").pack(anchor="w", padx=5, pady=2)
+ttk.Entry(hash_frame, textvariable=sha256_var, state="readonly").pack(fill="x", padx=5, pady=2)
+verify_frame_hash = ttk.Frame(hash_frame)
+verify_frame_hash.pack(fill="x", padx=5, pady=5)
+verify_entry_hash = ttk.Entry(verify_frame_hash)
+verify_entry_hash.pack(side="left", fill="x", expand=True, padx=5, pady=5)
+verify_alg_var = tk.StringVar(value="MD5")
+ttk.OptionMenu(verify_frame_hash, verify_alg_var, "MD5", "MD5", "SHA256").pack(side="left", padx=5, pady=5)
+ttk.Button(hash_frame, text="Verify Hash", command=verify_hash).pack(padx=5, pady=5)
 
 def on_close():
     global master_password, fernet, aes_secret_key
