@@ -1,34 +1,83 @@
-# erosolar apps, by one of her fans
+# erosolar-dot-net from fresh elastic compute engine, installing nginx to reverse proxy visitors who visit on external http/s IPs on / to port 3000 localhost, which next.js serves by running nodejs. to add any other application, ensure the root of that application is served to some endpoint via both the application setting itself, and also nginx; please see demo nginx conf file in this repo
 
-![image](https://github.com/user-attachments/assets/c8b925bd-68ab-4a09-a9bb-5b82eccd1fdc)
+# Update system
+sudo apt update && sudo apt upgrade -y
 
-![image](https://github.com/user-attachments/assets/34cf1307-162c-4cea-9a6a-cc6c846a13b1)
+# Install Nginx
+sudo apt install nginx -y
 
------BEGIN PGP SIGNED MESSAGE-----
-Hash: SHA256
+# Configure Nginx to proxy requests on erosolar.net to port 3000
+sudo tee /etc/nginx/sites-available/erosolar.net > /dev/null <<'EOF'
+server {
+    listen 80;
+    server_name erosolar.net www.erosolar.net;
 
-Hi Adam nice to meet you!
------BEGIN PGP SIGNATURE-----
+    location / {
+        proxy_pass http://localhost:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_cache_bypass $http_upgrade;
+    }
+}
+EOF
 
-wsFzBAABCAAdBQJoAKnCFiEEufAOqTv5F61YNehDm/9TITVqO30ACgkQm/9TITVq
-O31Izg//cRBrkyykVhG+b7BCdJn+xkpvL5er1T4qzvVGFjTx5NirLbXFF2c82LOy
-/DJdoVa29SQqhyB8c6tK5TAMFR41WnqFDb+p/VsXNAejYFuCZ1xitT+V30yWXpfH
-ifODcTX2CYP9AXZJG2bEUVSo6dmmb8SmLrAL2LSo3mpYO5vfVCuJeZpEKW8tIUD7
-czaXKWweybmn7oaliFQbk23xMAtH4pKMD97qrrzhNQwt/6WQXGzSkThgf8k8Ryr9
-Qg2eYZ02s/AgVG0SptbCTINf5XKT8PBOafz5fjl4pxM87d661oJrkAWX4YJklZsE
-q2DkPdlbwyLxEhDwqwJ9xAK//41Mf7iYWhTILBZzYiKaTphbqSZV1t1b1GCvO171
-qYj+mkw37GPikcAxAcfgseOLm6gWWqR1vWN8kMsQZmjiAo8uCs8y002EUQ+OfSIz
-fFg03NhU5ZAZlHeY3DcjvjjkgegdU7SrKL0aV4Q1BkleXiVPIg/l2O2ygqWWT57J
-HJlOkOOwp4+AHGmk1DM2E66ssM1TmD/roXB7Zp1Zfs4HWOhgCqoyfD1ekdpEU+38
-j15D0OCsjVEsBqgD7VpAEsPX3wfVvXjJVDwR02gN3JbMOWOsGmWNlxykjyKVzSNg
-sc5FqpI5Y0e9/hDo/4KqVhvRNh0B+iYOFTFpfFRC3gZ+qhMN+MU=
-=7aqn
------END PGP SIGNATURE-----
+# Enable the config
+sudo ln -s /etc/nginx/sites-available/erosolar.net /etc/nginx/sites-enabled/
 
-![image](https://github.com/user-attachments/assets/2a57126a-376e-42a7-8e08-89f9bbfb10ef)
+# Test and reload Nginx
+sudo nginx -t && sudo systemctl reload nginx
 
-Valid: True
+# Install Certbot and the Nginx plugin
+sudo apt install certbot python3-certbot-nginx -y
 
-Hi Adam nice to meet you!
+# Obtain and install the SSL certificate
+sudo certbot --nginx -d erosolar.net -d www.erosolar.net --non-interactive --agree-tos -m admin@erosolar.net --redirect
 
-![image](https://github.com/user-attachments/assets/bf5f9d4a-124b-4276-9398-ec4390aa7c51)
+# Auto-renewal cron job (optional - usually added by Certbot)
+sudo systemctl enable certbot.timer
+
+# restart nginx
+
+sudo systemctl restart nginx
+ 
+# erosolar.net/encryption
+gunicorn --bind 0.0.0.0:5000 encryption:app &
+
+
+ # erosolar.net/circuits
+gunicorn --bind 0.0.0.0:6969 circuits:app &
+
+# to kill and restart gunicorn (or anything else)
+
+ps aux | grep "gunicorn"
+
+sudo kill -9 pid of whatever the fuck you wanna kill
+
+# pyinstaller for the desktop pgp applications
+
+python3.12 -m PyInstaller desktop_pgp.py
+
+# screenshot demos
+
+![image](https://github.com/user-attachments/assets/5fee10cb-138e-4f69-b1d0-4550725d9832)
+
+![image](https://github.com/user-attachments/assets/d3cf70d5-ae03-48a4-bedc-29ac190e16ba)
+
+This is full ECC (all 3 types) it's not demos but i have to edit it manually to reflect this
+
+![image](https://github.com/user-attachments/assets/45f199bd-6ddb-40ff-8f6d-fa539c68e423)
+
+![image](https://github.com/user-attachments/assets/705c4a03-e9dd-4957-90eb-fffe21b497f7)
+
+This is diffie demo but i have to edit manually; ChatGPT can make mistakes...
+
+![image](https://github.com/user-attachments/assets/b87364a3-92a3-411a-86c4-53c346b2eed5)
+
+
+![image](https://github.com/user-attachments/assets/8db0180f-53b4-4c21-8a36-4a1b72c9857a)
+
+![image](https://github.com/user-attachments/assets/838ca501-1f58-413e-a173-9c36370aa8bb)
+
+![image](https://github.com/user-attachments/assets/40147576-c04c-48f1-8486-94f706bbfc6f)
