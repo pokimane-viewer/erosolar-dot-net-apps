@@ -1,3 +1,5 @@
 cryptography
 pgpy
 python-gnupg
+keyring
+fernet
